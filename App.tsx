@@ -571,6 +571,15 @@ function deriveLifeAreas(chart,aln){
   const dayRuler=aln.wd.planet;
   const moonTier=aln.moon.tier;
   const retroPlanets=aln.retro.map(r=>r.planet);
+  // Personal layer — without this, everything below only reads the day/moon/
+  // retrograde, which is identical for every person checking on the same day.
+  // Your Sun, Moon, and Rising each have a ruling planet; when today's day
+  // ruler or an active retrograde IS one of your own rulers, that's not a
+  // generic transit anymore — it's touching your actual chart.
+  const personalRulers=[{sign:chart.sun,label:'Sun'},{sign:chart.moon,label:'Moon'},{sign:chart.rising,label:'Rising'}]
+    .filter(p=>p.sign&&SD[p.sign]?.ruler)
+    .map(p=>({...p,ruler:SD[p.sign].ruler}));
+  const personalDayMatch=personalRulers.find(p=>p.ruler===dayRuler);
   const domains={};
   const NOTES={
     career:{
@@ -608,11 +617,16 @@ function deriveLifeAreas(chart,aln){
       if(aln.wd.tier==='open'){score+=15;reasons.push(NOTES[domain].dayOpen);}
       else if(aln.wd.tier==='avoid'){score-=15;reasons.push(NOTES[domain].dayAvoid);}
       else{score+=5;}
+      if(personalDayMatch){score+=8;reasons.push(`Today's ${dayRuler} day also rules your ${personalDayMatch.sign} ${personalDayMatch.label} — this one lands closer to home than a typical ${dayRuler} day.`);}
     }
     if(moonTier==='open'&&(domain==='love'||domain==='family')){score+=10;reasons.push(NOTES[domain].moonOpen);}
     const hitRetroPlanet=retroPlanets.find(p=>rulers.includes(p));
     const hitRetro=hitRetroPlanet?aln.retro.find(r=>r.planet===hitRetroPlanet):null;
-    if(hitRetro){score-=12;reasons.push(NOTES[domain].retro(hitRetro.planet,hitRetro.endLabel));}
+    if(hitRetro){
+      score-=12;reasons.push(NOTES[domain].retro(hitRetro.planet,hitRetro.endLabel));
+      const personalRetroMatch=personalRulers.find(p=>p.ruler===hitRetro.planet);
+      if(personalRetroMatch){score-=6;reasons.push(`${hitRetro.planet} also rules your ${personalRetroMatch.sign} ${personalRetroMatch.label} — this retrograde is personal, not just a general transit.`);}
+    }
     if(domain==='career'&&aln.pd===8){score+=10;reasons.push(`Personal Day 8 activates career and material matters directly.`);}
     if(domain==='family'&&(aln.pd===6||aln.pd===2)){score+=10;reasons.push(`Personal Day ${aln.pd} leans toward home and connection.`);}
     if(domain==='love'&&aln.pd===6){score+=8;reasons.push(`Personal Day 6 favors love and relationship focus.`);}
