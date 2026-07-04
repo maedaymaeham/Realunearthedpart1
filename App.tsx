@@ -143,6 +143,14 @@ function solveKepler(Mdeg,e){
   }
   return E;
 }
+function getSunLon(date){
+  const d=jd(date)-2451543.5;
+  const sM=((SUN_ELEMENTS.M[0]+SUN_ELEMENTS.M[1]*d)%360+360)%360,sE_=SUN_ELEMENTS.e[0]+SUN_ELEMENTS.e[1]*d;
+  const sEcc=solveKepler(sM,sE_);
+  const sxv=SUN_ELEMENTS.a*(Math.cos(sEcc*D2R)-sE_),syv=SUN_ELEMENTS.a*(Math.sqrt(1-sE_*sE_)*Math.sin(sEcc*D2R));
+  const sLon=Math.atan2(syv,sxv)*R2D+SUN_ELEMENTS.w[0]+SUN_ELEMENTS.w[1]*d;
+  return((sLon%360)+360)%360;
+}
 function getPlanetLon(planet,date){
   const d=jd(date)-2451543.5; // days since epoch used by these elements
   const el=PLANET_ELEMENTS[planet];
@@ -154,12 +162,14 @@ function getPlanetLon(planet,date){
   const vw=(v+w)*D2R,Nr=N*D2R,ir=i*D2R;
   const xh=r*(Math.cos(Nr)*Math.cos(vw)-Math.sin(Nr)*Math.sin(vw)*Math.cos(ir));
   const yh=r*(Math.sin(Nr)*Math.cos(vw)+Math.cos(Nr)*Math.sin(vw)*Math.cos(ir));
-  // Sun's geocentric position (flat in the ecliptic, N=0, i=0)
+  // Sun's geocentric position, needed to convert this planet's heliocentric
+  // position into a geocentric one. Reuses getSunLon's math via its distance
+  // component (recomputed here since getSunLon only returns the angle).
   const sM=((SUN_ELEMENTS.M[0]+SUN_ELEMENTS.M[1]*d)%360+360)%360,sE_=SUN_ELEMENTS.e[0]+SUN_ELEMENTS.e[1]*d;
   const sEcc=solveKepler(sM,sE_);
   const sxv=SUN_ELEMENTS.a*(Math.cos(sEcc*D2R)-sE_),syv=SUN_ELEMENTS.a*(Math.sqrt(1-sE_*sE_)*Math.sin(sEcc*D2R));
-  const sLon=Math.atan2(syv,sxv)*R2D+SUN_ELEMENTS.w[0]+SUN_ELEMENTS.w[1]*d;
   const sr=Math.sqrt(sxv*sxv+syv*syv);
+  const sLon=getSunLon(date);
   const xs=sr*Math.cos(sLon*D2R),ys=sr*Math.sin(sLon*D2R);
   const xg=xh+xs,yg=yh+ys;
   return(((Math.atan2(yg,xg)*R2D)%360)+360)%360;
@@ -215,6 +225,52 @@ function sSgn(m,d){
   return result;
 }
 function lpN(dob){let n=dob.replace(/-/g,'').split('').map(Number).reduce((a,b)=>a+b,0);while(n>9&&n!==11&&n!==22&&n!==33){n=String(n).split('').map(Number).reduce((a,b)=>a+b,0);}return n;}
+// ─── NAME NUMEROLOGY — Expression & Soul Urge ──────────────────────────────
+// Uses only the person's name, already collected at onboarding — genuinely
+// deterministic (letter arithmetic, no astronomical epoch to get wrong), so
+// it works at full depth even when birth time/place are unknown. Standard
+// Pythagorean letter-value chart, same reduction rule as Life Path (reduce to
+// single digit unless it lands on a master number 11/22/33).
+const LETTER_VAL={a:1,b:2,c:3,d:4,e:5,f:6,g:7,h:8,i:9,j:1,k:2,l:3,m:4,n:5,o:6,p:7,q:8,r:9,s:1,t:2,u:3,v:4,w:5,x:6,y:7,z:8};
+const VOWELS=new Set(['a','e','i','o','u']);
+function reduceNum(n){while(n>9&&n!==11&&n!==22&&n!==33){n=String(n).split('').map(Number).reduce((a,b)=>a+b,0);}return n;}
+function deriveNameNumbers(name){
+  if(!name)return null;
+  const letters=name.toLowerCase().replace(/[^a-z]/g,'').split('');
+  if(letters.length===0)return null;
+  const total=letters.reduce((sum,ch)=>sum+(LETTER_VAL[ch]||0),0);
+  const vowelSum=letters.filter(ch=>VOWELS.has(ch)).reduce((sum,ch)=>sum+LETTER_VAL[ch],0);
+  const consonantSum=letters.filter(ch=>!VOWELS.has(ch)).reduce((sum,ch)=>sum+LETTER_VAL[ch],0);
+  return{expression:reduceNum(total),soulUrge:vowelSum>0?reduceNum(vowelSum):null,personality:consonantSum>0?reduceNum(consonantSum):null};
+}
+const EXPRESSION_MEANINGS={
+  1:{theme:'The Leader',desc:'Your natural mode is originating, not following. You express yourself best through independent action and being first, not through consensus.'},
+  2:{theme:'The Diplomat',desc:'You express yourself through cooperation and sensitivity to others. Your gift is making people feel understood, often before they\'ve fully explained themselves.'},
+  3:{theme:'The Communicator',desc:'Words, art, and expression are your natural currency. You process the world by articulating it — talking, writing, or making something out of what you feel.'},
+  4:{theme:'The Builder',desc:'You express yourself through structure, reliability, and visible effort. People trust you because what you build actually holds up.'},
+  5:{theme:'The Adventurer',desc:'Freedom and variety aren\'t distractions for you — they\'re how you express your actual nature. You\'re built for change, not against it.'},
+  6:{theme:'The Nurturer',desc:'You express care in tangible ways — showing up, fixing things, making a space feel safe. Responsibility genuinely suits you, more than it does most people.'},
+  7:{theme:'The Seeker',desc:'You express yourself through depth and analysis. Surface-level exchange rarely satisfies you — you\'re after the real structure underneath things.'},
+  8:{theme:'The Executive',desc:'You express yourself through capability and material accomplishment. Ambition isn\'t a character flaw for you — it\'s a genuine expression of who you are.'},
+  9:{theme:'The Humanitarian',desc:'You express yourself through generosity on a scale bigger than yourself. What moves you tends to be about more than just your own life.'},
+  11:{theme:'The Illuminator',desc:'A higher-voltage 2 — you express yourself through intuitive insight that often arrives before you can explain how you know it. This is real signal, not overthinking.'},
+  22:{theme:'The Master Builder',desc:'A higher-voltage 4 — you\'re capable of expressing your structure-building gift at a scale that serves far more people than just yourself.'},
+  33:{theme:'The Master Teacher',desc:'A higher-voltage 6 — your care and responsibility naturally extend outward into teaching or healing others, not just those closest to you.'},
+};
+const SOUL_URGE_MEANINGS={
+  1:'What you actually want, underneath everything else, is independence — to be the one who decides, not the one who\'s told.',
+  2:'What you actually want is genuine closeness — real partnership, not just proximity to other people.',
+  3:'What you actually want is to be heard and to create — expression itself is the need, not just a means to something else.',
+  4:'What you actually want is solid ground — real stability you built yourself, not something borrowed or temporary.',
+  5:'What you actually want is freedom — room to move, change, and not be boxed into one version of your life.',
+  6:'What you actually want is to matter to the people close to you — to be needed in a way that feels real, not obligatory.',
+  7:'What you actually want is genuine understanding — to actually know the truth of things, not just accept the surface version.',
+  8:'What you actually want is real, tangible accomplishment — evidence, not just the feeling of having tried.',
+  9:'What you actually want is for your life to mean something beyond yourself — impact that outlasts your own immediate concerns.',
+  11:'What you actually want is to be a genuine channel for insight — to matter through what you perceive and pass on, not just what you produce.',
+  22:'What you actually want is to build something with lasting, large-scale impact — not just something personal, something structural.',
+  33:'What you actually want is to actively lift others up — care that expresses itself through real teaching or healing, not just feeling.',
+};
 function mFromB(dob,bt,lat,lng){
   // bt is already in 24h local time — convert to UTC using timezone
   try{
@@ -1234,6 +1290,9 @@ function WorkingsGuide({aln,compact=false,chart}){
         <div>
           <div className="tl" style={{marginBottom:3}}>What's Aligned Right Now</div>
           <div className="tb" style={{fontSize:12,color:'var(--mut)',lineHeight:1.5}}>{guide.verdict}</div>
+          <div className="tc" style={{marginTop:5,color:aln.currHr?'var(--open)':'var(--tens)'}}>
+            {aln.currHr?`⏱ Hour-by-hour precision active — ${aln.currHr.ruler} Hour right now`:'📍 Add your city on Signal for hour-by-hour precision — currently Moon-phase-only, which holds for several days at a time'}
+          </div>
         </div>
         {compact&&(
           <button onClick={()=>setExpanded(v=>!v)} style={{background:'none',border:'none',color:'var(--dim)',fontSize:11,cursor:'pointer',flexShrink:0,marginLeft:8}}>{expanded?'▲':'▼'}</button>
@@ -1245,11 +1304,12 @@ function WorkingsGuide({aln,compact=false,chart}){
           {guide.optimal.length>0&&(
             <div style={{marginBottom:10}}>
               <div className="tc" style={{color:'var(--open)',marginBottom:6}}>✦ Optimal working types</div>
-              <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
+              <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:6}}>
                 {guide.optimal.map((o,i)=>(
-                  <span key={i} title={o.sources.join(' · ')} style={{background:'var(--obg)',border:'1px solid var(--obdr)',borderRadius:20,padding:'4px 11px',color:'var(--open)',fontFamily:'Inter',fontSize:10,textTransform:'capitalize'}}>{o.text}</span>
+                  <span key={i} style={{background:'var(--obg)',border:'1px solid var(--obdr)',borderRadius:20,padding:'4px 11px',color:'var(--open)',fontFamily:'Inter',fontSize:10,textTransform:'capitalize'}}>{o.text}</span>
                 ))}
               </div>
+              <div className="tc" style={{color:'var(--dim)',fontSize:9}}>From: {[...new Set(guide.optimal.flatMap(o=>o.sources))].join(' · ')}</div>
             </div>
           )}
 
@@ -1268,11 +1328,12 @@ function WorkingsGuide({aln,compact=false,chart}){
           {guide.avoid.length>0&&(
             <div>
               <div className="tc" style={{color:'var(--avoid)',marginBottom:6}}>— Avoid right now</div>
-              <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
+              <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:6}}>
                 {guide.avoid.map((a,i)=>(
-                  <span key={i} title={a.sources.join(' · ')} style={{background:'var(--abg)',border:'1px solid var(--abdr)',borderRadius:20,padding:'4px 11px',color:'var(--avoid)',fontFamily:'Inter',fontSize:10,textTransform:'capitalize'}}>{a.text}</span>
+                  <span key={i} style={{background:'var(--abg)',border:'1px solid var(--abdr)',borderRadius:20,padding:'4px 11px',color:'var(--avoid)',fontFamily:'Inter',fontSize:10,textTransform:'capitalize'}}>{a.text}</span>
                 ))}
               </div>
+              <div className="tc" style={{color:'var(--dim)',fontSize:9}}>From: {[...new Set(guide.avoid.flatMap(a=>a.sources))].join(' · ')}</div>
             </div>
           )}
         </div>
@@ -2074,6 +2135,159 @@ Voice: warm, direct, specific. Written to ${me.name} about their connection with
   );
 }
 
+// ─── NATAL CHART WHEEL ──────────────────────────────────────────────────────
+// A real chart wheel, not a decorative one: sign wedges by element, and every
+// planet placed at its genuine computed degree (same math already verified
+// elsewhere in the app — getSunLon, mLon, getPlanetLon). When Rising is known,
+// the wheel rotates so the Rising sign's cusp sits at 9 o'clock, matching the
+// whole-sign house convention the rest of the app already uses — no new data
+// is needed since the app doesn't persist exact birth time/coordinates after
+// onboarding, only the derived signs.
+const ELEMENT_COL={Fire:'#B85C38',Earth:'#6B8046',Air:'#C9A227',Water:'#4A7A96'};
+function NatalWheel({chart}){
+  const data=useMemo(()=>{
+    if(!chart?.dob)return null;
+    const d=new Date(chart.dob+'T12:00:00Z');
+    const sunLon=getSunLon(d);
+    const moonLon=mLon(jd(d));
+    const planets=[
+      {key:'Sun',sym:'☉',lon:sunLon,col:'#A07818'},
+      {key:'Moon',sym:'☽',lon:moonLon,col:'#6050A0'},
+      {key:'Mercury',sym:'☿',lon:getPlanetLon('Mercury',d),col:'#387888'},
+      {key:'Venus',sym:'♀',lon:getPlanetLon('Venus',d),col:'#985068'},
+      {key:'Mars',sym:'♂',lon:getPlanetLon('Mars',d),col:'#903030'},
+      {key:'Jupiter',sym:'♃',lon:getPlanetLon('Jupiter',d),col:'#4848A0'},
+      {key:'Saturn',sym:'♄',lon:getPlanetLon('Saturn',d),col:'#686858'},
+    ];
+    const ascStartDeg=chart.rising?SIGNS.indexOf(chart.rising)*30:null;
+    return{planets,ascStartDeg};
+  },[chart?.dob,chart?.rising]);
+
+  if(!data)return null;
+  const{planets,ascStartDeg}=data;
+  const rotation=ascStartDeg!=null?ascStartDeg:0; // 0 = default Aries-at-9-o'clock view
+  const cx=150,cy=150,rOuter=140,rInner=108,rPlanet=90;
+  const toXY=(lonDeg,radius)=>{
+    const theta=(180+(lonDeg-rotation))*D2R;
+    return{x:cx+radius*Math.cos(theta),y:cy-radius*Math.sin(theta)};
+  };
+
+  // Avoid overlapping glyphs when two planets sit close together in longitude —
+  // nudge radius inward slightly for each subsequent close planet.
+  const sorted=[...planets].sort((a,b)=>a.lon-b.lon);
+  const placed=sorted.map((p,i)=>{
+    let radius=rPlanet;
+    for(let j=0;j<i;j++){
+      const diff=Math.min(Math.abs(p.lon-sorted[j].lon),360-Math.abs(p.lon-sorted[j].lon));
+      if(diff<10&&sorted[j]._radius===radius)radius-=16;
+    }
+    p._radius=radius;
+    return p;
+  });
+
+  return(
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',marginBottom:8}}>
+      <svg width="300" height="300" viewBox="0 0 300 300">
+        {/* Sign wedges */}
+        {SIGNS.map((sign,i)=>{
+          const lonStart=i*30;
+          const a1=(180+(lonStart-rotation))*D2R,a2=(180+(lonStart+30-rotation))*D2R;
+          const x1=cx+rOuter*Math.cos(a1),y1=cy-rOuter*Math.sin(a1);
+          const x2=cx+rOuter*Math.cos(a2),y2=cy-rOuter*Math.sin(a2);
+          const xi1=cx+rInner*Math.cos(a1),yi1=cy-rInner*Math.sin(a1);
+          const xi2=cx+rInner*Math.cos(a2),yi2=cy-rInner*Math.sin(a2);
+          const midA=(180+(lonStart+15-rotation))*D2R;
+          const lx=cx+((rOuter+rInner)/2)*Math.cos(midA),ly=cy-((rOuter+rInner)/2)*Math.sin(midA);
+          const col=ELEMENT_COL[SD[sign]?.el]||'#999';
+          return(
+            <g key={sign}>
+              <path d={`M ${xi1} ${yi1} L ${x1} ${y1} A ${rOuter} ${rOuter} 0 0 0 ${x2} ${y2} L ${xi2} ${yi2} A ${rInner} ${rInner} 0 0 1 ${xi1} ${yi1} Z`} fill={col} opacity={0.16} stroke={col} strokeWidth={0.5}/>
+              <text x={lx} y={ly} fontSize="9" fontFamily="Inter,sans-serif" fill={col} textAnchor="middle" dominantBaseline="middle" fontWeight="600" letterSpacing="0.5">{sign.slice(0,3).toUpperCase()}</text>
+            </g>
+          );
+        })}
+        {/* Inner circle */}
+        <circle cx={cx} cy={cy} r={rInner} fill="var(--bgc)" stroke="var(--bl)" strokeWidth="1"/>
+        {/* Ascendant marker */}
+        {ascStartDeg!=null&&(
+          <g>
+            <line x1={cx+rInner*Math.cos(D2R*180)} y1={cy-rInner*Math.sin(D2R*180)} x2={cx+(rOuter+6)*Math.cos(D2R*180)} y2={cy-(rOuter+6)*Math.sin(D2R*180)} stroke="var(--gold)" strokeWidth="1.5"/>
+            <text x={cx-(rOuter+18)} y={cy+4} fontSize="10" fontFamily="Inter,sans-serif" fill="var(--gold)" fontWeight="700" textAnchor="middle">AC</text>
+          </g>
+        )}
+        {/* Planets */}
+        {placed.map(p=>{
+          const{x,y}=toXY(p.lon,p._radius);
+          return(
+            <g key={p.key}>
+              <circle cx={x} cy={y} r="10" fill="var(--bgc)" stroke={p.col} strokeWidth="1.5"/>
+              <text x={x} y={y} fontSize="12" textAnchor="middle" dominantBaseline="central" fill={p.col}>{p.sym}</text>
+            </g>
+          );
+        })}
+      </svg>
+      <div style={{display:'flex',flexWrap:'wrap',gap:8,justifyContent:'center',marginTop:8,maxWidth:280}}>
+        {planets.map(p=>(
+          <div key={p.key} style={{display:'flex',alignItems:'center',gap:4}}>
+            <span style={{color:p.col,fontSize:12}}>{p.sym}</span>
+            <span className="tc">{p.key} {SIGNS[Math.floor(p.lon/30)]} {Math.floor(p.lon%30)}°</span>
+          </div>
+        ))}
+      </div>
+      {ascStartDeg==null&&(
+        <div className="tc" style={{marginTop:8,color:'var(--dim)',textAlign:'center',maxWidth:260}}>Add birth time + city for a house-rotated wheel with your Ascendant marked. Showing Aries at 9 o'clock by default.</div>
+      )}
+    </div>
+  );
+}
+
+// ─── TREE OF LIFE DIAGRAM ───────────────────────────────────────────────────
+// Real geometry, not a 2-column list: the traditional 3-pillar layout with the
+// 22 actual connecting paths drawn as lines, using the SEPH/TREE_PATHS data
+// that already existed — this is a rendering upgrade, not a new data source.
+const SEPH_POS={1:{x:0.5,y:0.0},2:{x:1.0,y:0.13},3:{x:0.0,y:0.13},4:{x:1.0,y:0.37},5:{x:0.0,y:0.37},6:{x:0.5,y:0.48},7:{x:1.0,y:0.63},8:{x:0.0,y:0.63},9:{x:0.5,y:0.79},10:{x:0.5,y:1.0}};
+function TreeOfLifeDiagram({activeNumbers}){
+  const W=260,H=340,padX=40,padY=25;
+  const px=n=>padX+SEPH_POS[n].x*(W-padX*2);
+  const py=n=>padY+SEPH_POS[n].y*(H-padY*2);
+  return(
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{maxWidth:300,display:'block',margin:'0 auto'}}>
+      {TREE_PATHS.map(([a,b],i)=>{
+        const bothActive=activeNumbers.includes(a)&&activeNumbers.includes(b);
+        return<line key={i} x1={px(a)} y1={py(a)} x2={px(b)} y2={py(b)} stroke={bothActive?'var(--gold)':'var(--bl)'} strokeWidth={bothActive?1.8:1}/>;
+      })}
+      {SEPH.map(s=>{
+        const isActive=activeNumbers.includes(s.n);
+        return(
+          <g key={s.n}>
+            <circle cx={px(s.n)} cy={py(s.n)} r={isActive?16:11} fill={isActive?s.col:'var(--bgm)'} stroke={s.col} strokeWidth={isActive?0:1.5} opacity={isActive?1:0.7}/>
+            <text x={px(s.n)} y={py(s.n)} fontSize={isActive?11:9} fontFamily="Inter,sans-serif" fill={isActive?'#fff':'var(--mut)'} textAnchor="middle" dominantBaseline="central" fontWeight="600">{s.n}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ─── CHAKRA BODY DIAGRAM ────────────────────────────────────────────────────
+// A simple body silhouette with the 7 centers placed in their real vertical
+// order (Root at base, Crown at top) — same emphasis data already computed
+// for the text list below it, just given a visual home instead of only rows.
+const CHAKRA_Y={Root:0.95,Sacral:0.80,'Solar Plexus':0.65,Heart:0.50,Throat:0.36,'Third Eye':0.24,Crown:0.08};
+function ChakraDiagram({chakras}){
+  const W=120,H=260;
+  return(
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{maxWidth:130,display:'block',margin:'0 auto'}}>
+      <ellipse cx={W/2} cy={H*0.08} rx={16} ry={18} fill="none" stroke="var(--bl)" strokeWidth="1.5"/>
+      <path d={`M ${W/2-22} ${H*0.18} Q ${W/2-30} ${H*0.55} ${W/2-14} ${H*0.98} L ${W/2+14} ${H*0.98} Q ${W/2+30} ${H*0.55} ${W/2+22} ${H*0.18} Z`} fill="none" stroke="var(--bl)" strokeWidth="1.5"/>
+      {chakras.map(c=>{
+        const y=(CHAKRA_Y[c.name]||0.5)*H,isEmphasized=c.score>0;
+        return<circle key={c.name} cx={W/2} cy={y} r={isEmphasized?10:7} fill={c.col} opacity={isEmphasized?0.9:0.4}/>;
+      })}
+    </svg>
+  );
+}
+
 // ─── BLUEPRINT PAGE ───────────────────────────────────────────────────────────
 function BlueprintPage({chart,codexEntries,loc,savedRelationships,onSaveRelationship,onRemoveRelationship,onUpdate}){
   const[showEdit,setShowEdit]=useState(false);
@@ -2205,6 +2419,9 @@ Voice: warm, perceptive, like a gifted astrologer who has actually studied this 
 
       {/* WHO YOU ARE — coherent portrait */}
       {bTab==='chart'&&(<>
+      <div className="portrait-block" style={{marginBottom:12}}>
+        <NatalWheel chart={chart}/>
+      </div>
       <div className="portrait-block" style={{marginBottom:12}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
           <div className="tl">Who You Are</div>
@@ -2352,6 +2569,16 @@ Voice: warm, perceptive, like a gifted astrologer who has actually studied this 
         <div className="tl" style={{marginBottom:4}}>Chakra Profile</div>
         <div className="tb" style={{fontSize:12,color:'var(--mut)',lineHeight:1.6,marginBottom:14}}>Your Sun, Moon, and Rising elements naturally emphasize certain centers. This isn't a fixed ranking — it's where your energy tends to gather, and where it may need more conscious attention.</div>
         {(()=>{
+          const elTagsForDiagram=[{sign:chart.sun,el:SD[chart.sun]?.el},{sign:chart.moon,el:chart.moon?SD[chart.moon]?.el:null},{sign:chart.rising,el:chart.rising?SD[chart.rising]?.el:null}].filter(t=>t.el);
+          const elCountsForDiagram={};
+          elTagsForDiagram.forEach(t=>{elCountsForDiagram[t.el]=(elCountsForDiagram[t.el]||0)+1;});
+          const diagramChakras=CK.map(c=>{
+            const matchEl=Object.keys(EL_TO_CHAKRA).find(el=>EL_TO_CHAKRA[el].includes(c.name));
+            return{name:c.name,col:c.col,score:elCountsForDiagram[matchEl]||0};
+          });
+          return<ChakraDiagram chakras={diagramChakras}/>;
+        })()}
+        {(()=>{
           const elTags=[{label:'Sun',sign:chart.sun,el:SD[chart.sun]?.el},{label:'Moon',sign:chart.moon,el:chart.moon?SD[chart.moon]?.el:null},{label:'Rising',sign:chart.rising,el:chart.rising?SD[chart.rising]?.el:null}].filter(t=>t.el);
           const elCounts={};
           elTags.forEach(t=>{elCounts[t.el]=(elCounts[t.el]||0)+1;});
@@ -2464,6 +2691,43 @@ Voice: warm, perceptive, like a gifted astrologer who has actually studied this 
         <div className="tc" style={{textAlign:'right',marginBottom:8}}>Year {py} of 9</div>
         {bdn.raw>9&&<div className="tc">Birth Day: {bdn.raw} / {bdn.red} — secondary influence on natural expression</div>}
       </div>
+
+      {/* NAME NUMEROLOGY — Expression & Soul Urge, from the name already on file.
+          Genuinely deterministic (letter arithmetic), so it's full-depth even
+          without birth time or place. */}
+      {(()=>{
+        const nn=deriveNameNumbers(chart.name);
+        if(!nn)return null;
+        const exp=EXPRESSION_MEANINGS[nn.expression];
+        return(
+          <div className="portrait-block" style={{marginBottom:12}}>
+            <div className="tl" style={{marginBottom:4}}>Your Name's Numbers</div>
+            <div className="tc" style={{marginBottom:14}}>From the letters in your name — always available, regardless of birth time or place</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:14}}>
+              <div style={{background:'var(--bgm)',borderRadius:12,padding:'14px',textAlign:'center',border:'1px solid var(--bl)'}}>
+                <div className="tc" style={{marginBottom:4}}>Expression</div>
+                <div className="td" style={{fontSize:32,color:'var(--gold)'}}>{nn.expression}</div>
+                <div className="tc" style={{marginTop:2,color:'var(--gold)'}}>{exp?.theme}</div>
+              </div>
+              {nn.soulUrge!=null&&(
+                <div style={{background:'var(--bgm)',borderRadius:12,padding:'14px',textAlign:'center',border:'1px solid var(--bl)'}}>
+                  <div className="tc" style={{marginBottom:4}}>Soul Urge</div>
+                  <div className="td" style={{fontSize:32,color:'var(--lun)'}}>{nn.soulUrge}</div>
+                  <div className="tc" style={{marginTop:2,color:'var(--lun)'}}>Heart's Desire</div>
+                </div>
+              )}
+            </div>
+            <div className="tb" style={{fontSize:14,lineHeight:1.8,marginBottom:8}}>{exp?.desc}</div>
+            <WhyBtn text={`The Expression Number (sometimes called the Destiny Number) comes from assigning every letter in your full name a number, 1-9, using the traditional Pythagorean chart, then reducing the total the same way as your Life Path. Where your Life Path is WHY you're here, your Expression is HOW you naturally come across and operate — your innate approach, independent of birth time or place.`}/>
+            {nn.soulUrge!=null&&(
+              <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid var(--bl)'}}>
+                <div className="tb" style={{fontSize:14,lineHeight:1.8,marginBottom:8}}>{SOUL_URGE_MEANINGS[nn.soulUrge]}</div>
+                <WhyBtn text="The Soul Urge (or Heart's Desire) number comes from only the VOWELS in your name, reduced the same way. Where Expression shows your outward approach, Soul Urge shows the inner motivation underneath it — what you're actually reaching for, whether or not it's visible from the outside."/>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       </>)}
 
@@ -2611,18 +2875,16 @@ Voice: warm, perceptive, like a gifted astrologer who has actually studied this 
         <div className="tl" style={{marginBottom:4}}>Tree of Life</div>
         <div className="tb" style={{fontSize:12,color:'var(--mut)',lineHeight:1.6,marginBottom:14}}>Ten spheres, twenty-two connecting paths. Your chart activates specific points — here's where you sit on the whole structure.</div>
 
-        {/* Full tree — all 10 spheres, yours highlighted */}
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:14}}>
+        {/* Full tree — real geometry, yours highlighted */}
+        <TreeOfLifeDiagram activeNumbers={seph.activeNumbers}/>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:5,marginTop:14,marginBottom:14}}>
           {SEPH.map(s=>{
             const isActive=seph.activeNumbers.includes(s.n);
             return(
-              <div key={s.n} style={{background:isActive?s.col+'22':'var(--bgm)',border:`1px solid ${isActive?s.col+'60':'var(--bl)'}`,borderRadius:10,padding:'8px 10px',opacity:isActive?1:.55}}>
-                <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:2}}>
-                  <div style={{width:9,height:9,borderRadius:'50%',background:s.col,flexShrink:0}}/>
-                  <div style={{fontFamily:'Inter',fontSize:9,color:'var(--dim)'}}>{s.n}</div>
-                  <div style={{fontFamily:'Fraunces,serif',fontSize:12,color:isActive?'var(--ink)':'var(--mut)',fontWeight:300}}>{s.name}</div>
-                </div>
-                <div className="tc">{s.title}</div>
+              <div key={s.n} style={{display:'flex',alignItems:'center',gap:6,opacity:isActive?1:.55}}>
+                <div style={{width:8,height:8,borderRadius:'50%',background:s.col,flexShrink:0}}/>
+                <div style={{fontFamily:'Inter',fontSize:9,color:'var(--dim)'}}>{s.n}</div>
+                <div className="tc" style={{color:isActive?'var(--ink)':'var(--mut)'}}>{s.name} — {s.title}</div>
               </div>
             );
           })}
